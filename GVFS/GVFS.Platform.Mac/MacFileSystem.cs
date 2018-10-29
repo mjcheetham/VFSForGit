@@ -43,6 +43,12 @@ namespace GVFS.Platform.Mac
             return NativeFileReader.TryReadFirstByteOfFile(fileName, buffer);
         }
 
+        public string GetVolumeRootForPath(string path)
+        {
+            // TODO(Mac): Determine the mounted volumes; for now just assume everything is under "/".
+            return "/";
+        }
+
         [DllImport("libc", EntryPoint = "chmod", SetLastError = true)]
         private static extern int Chmod(string pathname, int mode);
 

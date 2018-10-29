@@ -17,16 +17,18 @@ namespace GVFS.Service
         private const string RegistryTempName = "repo-registry.lock";
         private const int RegistryVersion = 2;
 
-        private string registryParentFolderPath;
-        private ITracer tracer;
-        private PhysicalFileSystem fileSystem;
-        private object repoLock = new object();
+        private readonly string registryParentFolderPath;
+        private readonly ITracer tracer;
+        private readonly PhysicalFileSystem fileSystem;
+        private readonly object repoLock = new object();
+        private readonly VolumeWatcher volumeWatcher;
 
         public RepoRegistry(ITracer tracer, PhysicalFileSystem fileSystem, string serviceDataLocation)
         {
             this.tracer = tracer;
             this.fileSystem = fileSystem;
             this.registryParentFolderPath = serviceDataLocation;
+            this.volumeWatcher = new VolumeWatcher(tracer);
 
             EventMetadata metadata = new EventMetadata();
             metadata.Add("Area", EtwArea);
@@ -178,18 +180,35 @@ namespace GVFS.Service
 
                     foreach (RepoRegistration repo in activeRepos)
                     {
-                        // TODO #1043088: We need to respect the elevation level of the original mount
-                        if (process.Mount(repo.EnlistmentRoot))
+                        string repoRoot = repo.EnlistmentRoot;
+                        string volumeRoot = GVFSPlatform.Instance.FileSystem.GetVolumeRootForPath(repoRoot);
+
+                        // Only try to mount repositories on volumes that exist and are available (unlocked, etc).
+                        if (volumeRoot != null && Directory.Exists(volumeRoot))
                         {
-                            this.SendNotification(sessionId, "GVFS AutoMount", "The following GVFS repo is now mounted: \n{0}", repo.EnlistmentRoot);
+                            // TODO #1043088: We need to respect the elevation level of the original mount
+                            if (process.Mount(repo.EnlistmentRoot))
+                            {
+                                this.SendNotification(sessionId, "GVFS AutoMount", "The following GVFS repo is now mounted: \n{0}", repo.EnlistmentRoot);
+                            }
+                            else
+                            {
+                                this.SendNotification(sessionId, "GVFS AutoMount", "The following GVFS repo failed to mount: \n{0}", repo.EnlistmentRoot);
+                            }
                         }
                         else
                         {
-                            this.SendNotification(sessionId, "GVFS AutoMount", "The following GVFS repo failed to mount: \n{0}", repo.EnlistmentRoot);
+                            // Schedule this repository to be mounted once the volume becomes available
+                            this.volumeWatcher.RegisterForPathFirstAvailable();
                         }
                     }
                 }
             }
+        }
+
+        private void MountReposOnVolume(string volumePath)
+        {
+
         }
 
         public Dictionary<string, RepoRegistration> ReadRegistry()

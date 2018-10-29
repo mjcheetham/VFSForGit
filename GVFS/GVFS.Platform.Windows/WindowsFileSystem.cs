@@ -3,6 +3,7 @@ using GVFS.Common.FileSystem;
 using Microsoft.Win32.SafeHandles;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace GVFS.Platform.Windows
 {
@@ -40,6 +41,18 @@ namespace GVFS.Platform.Windows
         public bool HydrateFile(string fileName, byte[] buffer)
         {
             return NativeFileReader.TryReadFirstByteOfFile(fileName, buffer);
+        }
+
+        public string GetVolumeRootForPath(string path)
+        {
+            var volumePath = new StringBuilder(GVFSConstants.MaxPath);
+
+            if (NativeMethods.GetVolumePathName(path, volumePath, GVFSConstants.MaxPath))
+            {
+                return volumePath.ToString();
+            }
+
+            return null;
         }
 
         private class NativeFileReader

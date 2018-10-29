@@ -38,5 +38,10 @@ namespace GVFS.UnitTests.Mock.FileSystem
         {
             throw new NotSupportedException();
         }
+
+        public string GetVolumeRootForPath(string path)
+        {
+            throw new NotImplementedException();
+        }
     }
 }
