@@ -1,6 +1,7 @@
 ﻿using System;
+using System.IO;
+using System.Timers;
 using GVFS.Common;
-using GVFS.Common.FileSystem;
 using GVFS.Common.NamedPipes;
 using GVFS.Common.Tracing;
 using GVFS.Service.Handlers;
@@ -9,13 +10,14 @@ namespace GVFS.Service
 {
     public class RepoAutoMounter : IDisposable
     {
+        private static readonly TimeSpan PollingInterval = TimeSpan.FromSeconds(15);
+
         private readonly ITracer tracer;
         private readonly RepoRegistry repoRegistry;
         private readonly int sessionId;
-        private readonly GVFSMountProcessManager mountProcessManager;
+        private readonly GVFSMountProcess mountProcess;
         private readonly string userSid;
-
-        private IVolumeStateWatcher volumeWatcher;
+        private readonly Timer volumeTimer;
 
         public RepoAutoMounter(ITracer tracer, RepoRegistry repoRegistry, int sessionId)
         {
@@ -24,59 +26,71 @@ namespace GVFS.Service
             this.sessionId = sessionId;
 
             // Create a mount process factory for this session/user
-            this.mountProcessManager = new GVFSMountProcessManager(this.tracer, sessionId);
-            this.userSid = this.mountProcessManager.CurrentUser.Identity.User?.Value;
+            this.mountProcess = new GVFSMountProcess(this.tracer, sessionId);
+            this.userSid = this.mountProcess.CurrentUser.Identity.User?.Value;
+
+            this.volumeTimer = new Timer(PollingInterval.TotalMilliseconds)
+            {
+                // Don't want to auto reset and keep polling.
+                // Only reset the polling timer if there are still some repositories to mount.
+                AutoReset = false,
+            };
+            this.volumeTimer.Elapsed += this.OnVolumeTimerElapsed;
         }
 
         public void Start()
         {
             this.tracer.RelatedInfo("Starting auto mounter for session {0}", this.sessionId);
 
-            // Try mounting all the user's active repo straight away
-            this.tracer.RelatedInfo("Attempting to mount all known repos for user {0}", this.userSid);
+            // Try mounting all the user's active repo straight away.
+            // This will start the volume polling retry-loop if required.
             this.MountAll();
-
-            // Start watching for changes to volume availability
-            this.volumeWatcher = GVFSPlatform.Instance.FileSystem.CreateVolumeStateWatcher();
-            this.volumeWatcher.VolumeStateChanged += this.OnVolumeStateChanged;
-            this.volumeWatcher.Start();
-        }
-
-        public void Stop()
-        {
-            this.tracer.RelatedInfo("Stopping auto mounter for session {0}", this.sessionId);
-
-            // Stop watching for changes to volume availability
-            if (this.volumeWatcher != null)
-            {
-                this.volumeWatcher.Stop();
-                this.volumeWatcher.VolumeStateChanged -= this.OnVolumeStateChanged;
-                this.volumeWatcher.Dispose();
-                this.volumeWatcher = null;
-            }
         }
 
         public void Dispose()
         {
-            this.Stop();
-            this.mountProcessManager?.Dispose();
+            this.volumeTimer.Stop();
+            this.volumeTimer.Elapsed -= this.OnVolumeTimerElapsed;
+            this.volumeTimer.Dispose();
+            this.mountProcess.Dispose();
         }
 
-        private void MountAll(string rootPath = null)
+        private void MountAll()
         {
+            bool allVolumesWereAvailable = true;
+
             if (this.repoRegistry.TryGetActiveReposForUser(this.userSid, out var activeRepos, out string errorMessage))
             {
                 foreach (RepoRegistration repo in activeRepos)
                 {
-                    if (rootPath == null || GVFSPlatform.Instance.FileSystem.IsPathUnderDirectory(rootPath, repo.EnlistmentRoot))
+                    // Only try to mount the registered repository if the parent volume is available
+                    string volumeRoot = GVFSPlatform.Instance.FileSystem.GetVolumeRoot(repo.EnlistmentRoot);
+                    bool volumeAvailable = Directory.Exists(volumeRoot);
+
+                    if (volumeAvailable)
                     {
                         this.Mount(repo.EnlistmentRoot);
+                    }
+                    else
+                    {
+                        allVolumesWereAvailable = false;
                     }
                 }
             }
             else
             {
                 this.tracer.RelatedError("Could not get repos to auto mount for user. Error: " + errorMessage);
+            }
+
+            // We didn't see all volumes as available; ensure we're polling for volume availability so we can retry
+            if (allVolumesWereAvailable)
+            {
+                this.tracer.RelatedInfo("All volumes were available to try mounting registered repos. Automount complete.");
+            }
+            else
+            {
+                this.tracer.RelatedInfo($"Not all volumes were available to mount registered repos. Will retry after {PollingInterval.TotalMilliseconds} ms.");
+                this.volumeTimer.Start();
             }
         }
 
@@ -89,51 +103,23 @@ namespace GVFS.Service
 
             using (var activity = this.tracer.StartActivity("AutoMount", EventLevel.Informational, metadata))
             {
-                string volumeRoot = GVFSPlatform.Instance.FileSystem.GetVolumeRoot(enlistmentRoot);
-                if (GVFSPlatform.Instance.FileSystem.IsVolumeAvailable(volumeRoot))
+                // TODO #1043088: We need to respect the elevation level of the original mount
+                if (this.mountProcess.Mount(enlistmentRoot))
                 {
-                    // TODO #1043088: We need to respect the elevation level of the original mount
-                    if (this.mountProcessManager.StartMount(enlistmentRoot))
-                    {
-                        this.SendNotification("GVFS AutoMount", "The following GVFS repo is now mounted:\n{0}", enlistmentRoot);
-                        activity.RelatedInfo("Auto mount was successful for '{0}'", enlistmentRoot);
-                    }
-                    else
-                    {
-                        this.SendNotification("GVFS AutoMount", "The following GVFS repo failed to mount:\n{0}", enlistmentRoot);
-                        activity.RelatedError("Failed to auto mount '{0}'", enlistmentRoot);
-                    }
+                    this.SendNotification("GVFS AutoMount", "The following GVFS repo is now mounted:\n{0}", enlistmentRoot);
+                    activity.RelatedInfo("Auto mount was successful for '{0}'", enlistmentRoot);
                 }
                 else
                 {
-                    activity.RelatedInfo("Cannot auto mount '{0}' because the volume '{1}' not available.", enlistmentRoot, volumeRoot);
+                    this.SendNotification("GVFS AutoMount", "The following GVFS repo failed to mount:\n{0}", enlistmentRoot);
+                    activity.RelatedError("Failed to auto mount '{0}'", enlistmentRoot);
                 }
             }
         }
 
-        private void OnVolumeStateChanged(object sender, VolumeStateChangedEventArgs e)
+        private void OnVolumeTimerElapsed(object sender, ElapsedEventArgs e)
         {
-            var metadata = new EventMetadata
-            {
-                ["State"] = e.ChangeType.ToString(),
-                ["Volume"] = e.VolumePath,
-            };
-
-            this.tracer.RelatedEvent(EventLevel.Informational, "VolumeStateChange", metadata);
-
-            switch (e.ChangeType)
-            {
-                case VolumeStateChangeType.VolumeAvailable:
-                    this.MountAll(rootPath: e.VolumePath);
-                    break;
-                case VolumeStateChangeType.VolumeUnavailable:
-                    // There is no need to do anything here to stop any potentially orphaned mount processes
-                    // since they will self-terminate if the volume is removed.
-                    break;
-                default:
-                    this.tracer.RelatedWarning("Unknown volume state change type: {0}", e.ChangeType);
-                    break;
-            }
+            this.MountAll();
         }
 
         private void SendNotification(string title, string format, params object[] args)

@@ -207,7 +207,8 @@ namespace GVFS.Service
                                 // Try and normalize the enlistment path if the volume is available, otherwise just take the
                                 // path verbatim.
                                 string volumePath = GVFSPlatform.Instance.FileSystem.GetVolumeRoot(registration.EnlistmentRoot);
-                                if (GVFSPlatform.Instance.FileSystem.IsVolumeAvailable(volumePath))
+                                bool volumeAvailable = Directory.Exists(volumePath);
+                                if (volumeAvailable)
                                 {
                                     string normalizedPath;
                                     if (GVFSPlatform.Instance.FileSystem.TryGetNormalizedPath(registration.EnlistmentRoot, out normalizedPath, out errorMessage))
@@ -229,7 +230,7 @@ namespace GVFS.Service
                                         metadata.Add("registration.EnlistmentRoot", registration.EnlistmentRoot);
                                         metadata.Add("NormalizedEnlistmentRootPath", normalizedPath);
                                         metadata.Add("ErrorMessage", errorMessage);
-                                        this.tracer.RelatedWarning(metadata, $"{nameof(ReadRegistry)}: Failed to get normalized path name for registed enlistment root");
+                                        this.tracer.RelatedWarning(metadata, $"{nameof(ReadRegistry)}: Failed to get normalized path name for registered enlistment root");
                                     }
                                 }
 

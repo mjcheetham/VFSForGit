@@ -300,8 +300,6 @@ namespace GVFS.Common.NamedPipes
             {
                 public List<string> RepoList { get; set; }
 
-                public List<string> InvalidRepoList { get; set; }
-
                 public static Response FromMessage(Message message)
                 {
                     return JsonConvert.DeserializeObject<Response>(message.Body);

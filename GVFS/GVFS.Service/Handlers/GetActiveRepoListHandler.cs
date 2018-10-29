@@ -3,6 +3,7 @@ using GVFS.Common.NamedPipes;
 using GVFS.Common.Tracing;
 using GVFS.Platform.Windows;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 
 namespace GVFS.Service.Handlers
@@ -32,7 +33,6 @@ namespace GVFS.Service.Handlers
             NamedPipeMessages.GetActiveRepoListRequest.Response response = new NamedPipeMessages.GetActiveRepoListRequest.Response();
             response.State = NamedPipeMessages.CompletionState.Success;
             response.RepoList = new List<string>();
-            response.InvalidRepoList = new List<string>();
 
             List<RepoRegistration> repos;
             if (this.registry.TryGetActiveRepos(out repos, out errorMessage))
@@ -41,13 +41,34 @@ namespace GVFS.Service.Handlers
 
                 foreach (string repoRoot in tempRepoList)
                 {
-                    if (!this.IsValidRepo(repoRoot))
+                    string volumePath = GVFSPlatform.Instance.FileSystem.GetVolumeRoot(repoRoot);
+                    bool volumeAvailable = Directory.Exists(volumePath);
+
+                    // If the parent volume path exists, but the repo path is missing then we treat
+                    // the registry entry as stale and remove it.
+                    // However if we cannot determine the volume path (or it does not exist) then forgo
+                    // removing the entry now because the volume may just not be mounted and unlocked yet.
+                    if (volumeAvailable)
                     {
-                        response.InvalidRepoList.Add(repoRoot);
+                        if (!this.IsValidRepo(repoRoot))
+                        {
+                            if (!this.registry.TryRemoveRepo(repoRoot, out errorMessage))
+                            {
+                                this.tracer.RelatedInfo("Removing an invalid repo failed with error: " + response.ErrorMessage);
+                            }
+                            else
+                            {
+                                this.tracer.RelatedInfo("Removed invalid repo entry from registry: " + repoRoot);
+                            }
+                        }
+                        else
+                        {
+                            response.RepoList.Add(repoRoot);
+                        }
                     }
                     else
                     {
-                        response.RepoList.Add(repoRoot);
+                        this.tracer.RelatedInfo("Cannot determine state of repo entry from registry because the parent volume is not available: {0}", repoRoot);
                     }
                 }
             }

@@ -77,7 +77,7 @@
     <Compile Include="RepoAutoMounter.cs" />
     <Compile Include="RepoRegistration.cs" />
     <Compile Include="RepoRegistry.cs" />
-    <Compile Include="GVFSMountProcessManager.cs" />
+    <Compile Include="GVFSMountProcess.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\GVFS.Common\GVFS.Common.csproj">

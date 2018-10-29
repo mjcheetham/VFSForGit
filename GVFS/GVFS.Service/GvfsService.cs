@@ -28,7 +28,7 @@ namespace GVFS.Service
         private string serviceName;
         private string serviceDataLocation;
         private RepoRegistry repoRegistry;
-        private IDictionary<int, RepoAutoMounter> repoMounters;
+        private Dictionary<int, RepoAutoMounter> repoMounters;
         private ProductUpgradeTimer productUpgradeTimer;
 
         public GVFSService(JsonTracer tracer)
@@ -127,7 +127,7 @@ namespace GVFS.Service
                         using (ITracer activity = this.tracer.StartActivity("LogonAutomount", EventLevel.Informational))
                         {
                             var mounter = new RepoAutoMounter(this.tracer, this.repoRegistry, sessionId);
-                            this.repoMounters.Add(sessionId, mounter);
+                            this.repoMounters[sessionId] = mounter;
 
                             mounter.Start();
 
@@ -140,7 +140,6 @@ namespace GVFS.Service
                         RepoAutoMounter mounter;
                         if (this.repoMounters.TryGetValue(sessionId, out mounter))
                         {
-                            mounter.Stop();
                             mounter.Dispose();
                         }
                     }

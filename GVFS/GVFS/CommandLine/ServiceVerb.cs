@@ -32,14 +32,7 @@ namespace GVFS.CommandLine
             Default = false,
             Required = false,
             HelpText = "Prints a list of all mounted repos")]
-        public bool ListMounted { get; set; }
-
-        [Option(
-            "list-all",
-            Default = false,
-            Required = false,
-            HelpText = "Prints a list of all known repos and their statuses")]
-        public bool ListAll { get; set; }
+        public bool List { get; set; }
 
         protected override string VerbName
         {
@@ -48,7 +41,7 @@ namespace GVFS.CommandLine
 
         public override void Execute()
         {
-            int optionCount = new[] { this.MountAll, this.UnmountAll, this.ListMounted, this.ListAll }.Count(flag => flag);
+            int optionCount = new[] { this.MountAll, this.UnmountAll, this.List }.Count(flag => flag);
             if (optionCount == 0)
             {
                 this.ReportErrorAndExit($"Error: You must specify an argument.  Run 'gvfs {ServiceVerbName} --help' for details.");
@@ -60,13 +53,12 @@ namespace GVFS.CommandLine
 
             string errorMessage;
             List<string> repoList;
-            List<string> invalidRepoList;
-            if (!this.TryGetRepoList(out repoList, out invalidRepoList, out errorMessage))
+            if (!this.TryGetRepoList(out repoList, out errorMessage))
             {
                 this.ReportErrorAndExit("Error getting repo list: " + errorMessage);
             }
 
-            if (this.ListMounted)
+            if (this.List)
             {
                 foreach (string repoRoot in repoList)
                 {
@@ -74,25 +66,6 @@ namespace GVFS.CommandLine
                     {
                         this.Output.WriteLine(repoRoot);
                     }
-                }
-            }
-            else if (this.ListAll)
-            {
-                foreach (string repoRoot in repoList)
-                {
-                    if (this.IsRepoMounted(repoRoot))
-                    {
-                        this.Output.WriteLine("{0} (mounted)", repoRoot);
-                    }
-                    else
-                    {
-                        this.Output.WriteLine("{0} (not mounted)", repoRoot);
-                    }
-                }
-
-                foreach (string repoRoot in invalidRepoList)
-                {
-                    this.Output.WriteLine("{0} (not available)", repoRoot);
                 }
             }
             else if (this.MountAll)
@@ -161,10 +134,9 @@ namespace GVFS.CommandLine
             }
         }
 
-        private bool TryGetRepoList(out List<string> repoList, out List<string> invalidRepoList, out string errorMessage)
+        private bool TryGetRepoList(out List<string> repoList, out string errorMessage)
         {
             repoList = null;
-            invalidRepoList = null;
             errorMessage = string.Empty;
 
             NamedPipeMessages.GetActiveRepoListRequest request = new NamedPipeMessages.GetActiveRepoListRequest();
@@ -198,7 +170,6 @@ namespace GVFS.CommandLine
                             else
                             {
                                 repoList = message.RepoList;
-                                invalidRepoList = message.InvalidRepoList;
                                 return true;
                             }
                         }
