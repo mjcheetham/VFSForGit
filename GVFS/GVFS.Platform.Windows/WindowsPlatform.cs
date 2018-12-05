@@ -72,7 +72,7 @@ namespace GVFS.Platform.Windows
 
         public override InProcEventListener CreateTelemetryListenerIfEnabled(string providerName, string enlistmentId, string mountId)
         {
-            return ETWTelemetryEventListener.CreateTelemetryListenerIfEnabled(
+            return AppInsightsEventListener.CreateTelemetryListenerIfEnabled(
                 this.GitInstallation.GetInstalledGitBinPath(),
                 providerName,
                 enlistmentId,

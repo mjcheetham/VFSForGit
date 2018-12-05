@@ -83,7 +83,11 @@ namespace GVFS.Platform.Mac
 
         public override InProcEventListener CreateTelemetryListenerIfEnabled(string providerName, string enlistmentId, string mountId)
         {
-            return null;
+            return AppInsightsEventListener.CreateTelemetryListenerIfEnabled(
+                this.GitInstallation.GetInstalledGitBinPath(),
+                providerName,
+                enlistmentId,
+                mountId);
         }
 
         public override string GetCurrentUser()
