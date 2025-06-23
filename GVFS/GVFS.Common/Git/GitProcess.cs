@@ -989,6 +989,37 @@ namespace GVFS.Common.Git
                 this.configName = configName;
             }
 
+            public bool TryParseAsBool(out bool value, out string error, bool defaultValue)
+            {
+                value = defaultValue;
+                error = string.Empty;
+
+                if (!this.TryParseAsString(out string valueString, out error))
+                {
+                    return false;
+                }
+
+                if (string.IsNullOrWhiteSpace(valueString))
+                {
+                    // Use default value
+                    return true;
+                }
+
+                if (bool.TryParse(valueString, out value))
+                {
+                    return true;
+                }
+
+                if (this.TryParseAsInt(defaultValue ? 1 : 0, 0, out int valueInt, out error))
+                {
+                    value = valueInt > 0; // Positive values are considered true, zero is false
+                    return true;
+                }
+
+                error = string.Format("Misconfigured config setting {0}, could not parse value `{1}` as a bool", this.configName, valueString);
+                return false;
+            }
+
             public bool TryParseAsString(out string value, out string error, string defaultValue = null)
             {
                 value = defaultValue;

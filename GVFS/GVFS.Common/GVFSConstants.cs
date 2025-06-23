@@ -25,6 +25,7 @@ namespace GVFS.Common
         public static class GitConfig
         {
             public const string GVFSPrefix = "gvfs.";
+            public const string AlwaysReindexPacks = GVFSPrefix + "alwaysReindexPacks";
             public const string MaxRetriesConfig = GVFSPrefix + "max-retries";
             public const string TimeoutSecondsConfig = GVFSPrefix + "timeout-seconds";
             public const string GitStatusCacheBackoffConfig = GVFSPrefix + "status-cache-backoff-seconds";

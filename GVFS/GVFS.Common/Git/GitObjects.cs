@@ -654,6 +654,21 @@ namespace GVFS.Common.Git
                 actualFile: Path.Combine(twoLetterFolderName, remainingDigits));
         }
 
+        private bool GetAlwaysReindexPacks(GitProcess gitProcess)
+        {
+            GitProcess.ConfigResult configResult = gitProcess.GetFromConfig(GVFSConstants.GitConfig.AlwaysReindexPacks);
+
+            const bool defaultValue = false;
+            if (!configResult.TryParseAsBool(out bool value, out string error, defaultValue))
+            {
+                this.Tracer.RelatedWarning("Failed to read config setting for 'gvfs.alwaysReindexPacks'. " + error,
+                    Keywords.Telemetry);
+                value = defaultValue;
+            }
+
+            return value;
+        }
+
         /// <summary>
         /// Uses a <see cref="PrefetchPacksDeserializer"/> to read the packs from the stream.
         /// </summary>
@@ -675,6 +690,8 @@ namespace GVFS.Common.Git
 
                 string tempPackFolderPath = Path.Combine(this.Enlistment.GitPackRoot, TempPackFolder);
                 this.fileSystem.CreateDirectory(tempPackFolderPath);
+
+                bool alwaysIndexPackfiles = GetAlwaysReindexPacks(gitProcess);
 
                 List<TempPrefetchPackAndIdx> tempPacks = new List<TempPrefetchPackAndIdx>();
                 foreach (PrefetchPacksDeserializer.PackAndIndex pack in deserializer.EnumeratePacks())
@@ -706,9 +723,24 @@ namespace GVFS.Common.Git
 
                     bytesDownloaded += packLength;
 
-                    // We will try to build an index if the server does not send one
-                    if (pack.IndexStream == null)
+                    // We will try to build an index if the server does not send one, or if we're configured to always index packfiles
+                    if (pack.IndexStream == null || alwaysIndexPackfiles)
                     {
+                        // If we're ignoring the server provided index we still need to fast-forward the stream to the end
+                        if (pack.IndexStream != null)
+                        {
+                            if (pack.IndexStream.CanSeek)
+                            {
+                                pack.IndexStream.Seek(0, SeekOrigin.End);
+                            }
+                            else
+                            {
+                                pack.IndexStream.CopyTo(Stream.Null);
+                            }
+
+                            bytesDownloaded += indexLength;
+                        }
+
                         GitProcess.Result result;
                         if (!this.TryBuildIndex(activity, packTempPath, out result, gitProcess))
                         {
