@@ -63,19 +63,35 @@ namespace GVFS.FunctionalTests.Tools
             string command,
             Dictionary<string, string> environmentVariables = null,
             bool removeWaitingMessages = true,
-            bool removeUpgradeMessages = true)
+            bool removeUpgradeMessages = true,
+            bool removePartialHydrationMessages = true)
         {
             ProcessResult result = GitProcess.InvokeProcess(gvfsRepoRoot, command, environmentVariables);
-            string errors = result.Errors;
 
-            if (!string.IsNullOrEmpty(errors) && (removeWaitingMessages || removeUpgradeMessages))
+            string output = FilterMessages(result.Output, removeWaitingMessages, removeUpgradeMessages, removePartialHydrationMessages);
+            string errors = FilterMessages(result.Errors, removeWaitingMessages, removeUpgradeMessages, removePartialHydrationMessages);
+
+            return new ProcessResult(
+                output,
+                errors,
+                result.ExitCode);
+        }
+
+        private static string FilterMessages(
+            string input,
+            bool removeWaitingMessages,
+            bool removeUpgradeMessages,
+            bool removePartialHydrationMessages)
+        {
+            if (!string.IsNullOrEmpty(input) && (removeWaitingMessages || removeUpgradeMessages || removePartialHydrationMessages))
             {
-                IEnumerable<string> errorLines = errors.Split(new string[] { Environment.NewLine }, StringSplitOptions.None);
-                IEnumerable<string> filteredErrorLines = errorLines.Where(line =>
+                IEnumerable<string> lines = input.Split(new char[] { '\r', '\n' }, StringSplitOptions.None);
+                IEnumerable<string> filteredLines = lines.Where(line =>
                 {
                     if (string.IsNullOrWhiteSpace(line) ||
                         (removeUpgradeMessages && line.StartsWith("A new version of VFS for Git is available.")) ||
-                        (removeWaitingMessages && line.StartsWith("Waiting for ")))
+                        (removeWaitingMessages && line.StartsWith("Waiting for ")) ||
+                        (removePartialHydrationMessages && line.StartsWith("You are in a partially-hydrated checkout with ")))
                     {
                         return false;
                     }
@@ -85,13 +101,10 @@ namespace GVFS.FunctionalTests.Tools
                     }
                 });
 
-                errors = filteredErrorLines.Any() ? string.Join(Environment.NewLine, filteredErrorLines) : string.Empty;
+                return filteredLines.Any() ? string.Join(Environment.NewLine, filteredLines) : string.Empty;
             }
 
-            return new ProcessResult(
-                result.Output,
-                errors,
-                result.ExitCode);
+            return input;
         }
 
         public static void ValidateGitCommand(
